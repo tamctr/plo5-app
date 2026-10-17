@@ -46,6 +46,18 @@ function mcEquity(hero,nOpp,trials,rnd){
   }
   return eq/trials;
 }
+// Head-to-head: exact hands h1 vs h2, random board. Returns {w1,w2,t} fractions
+function mcH2H(h1,h2,trials,rnd){
+  rnd=rnd||Math.random;var used=new Array(52).fill(false);
+  h1.concat(h2).forEach(function(c){if(used[c])throw new Error('duplicate card '+c);used[c]=true;});
+  var deck=[];for(var c=0;c<52;c++)if(!used[c])deck.push(c);
+  var n=deck.length,b=[0,0,0,0,0],w1=0,w2=0,t=0;
+  for(var k=0;k<trials;k++){
+    for(var i=0;i<5;i++){var j=i+Math.floor(rnd()*(n-i));var tmp=deck[i];deck[i]=deck[j];deck[j]=tmp;b[i]=deck[i];}
+    var v1=evalPLO(h1,b),v2=evalPLO(h2,b);if(v1>v2)w1++;else if(v2>v1)w2++;else t++;
+  }
+  return {w1:w1/trials,w2:w2/trials,t:t/trials};
+}
 var RANKS='23456789TJQKA',SUITS='shdc';
 function parseHand(s){var out=[];for(var i=0;i<s.length;i+=2)out.push(RANKS.indexOf(s[i])*4+SUITS.indexOf(s[i+1]));return out;}
 function heuristic(h){
@@ -81,5 +93,5 @@ function heuristic(h){
   var tier=score>=16?'Premium':score>=12?'Open any position':score>=8?'Late position':score>=5?'Limp/call in position':'Fold';
   return {score:score,breakdown:br,tier:tier};
 }
-if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic};
+if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,mcH2H:mcH2H};
 // ==ENDCORE==

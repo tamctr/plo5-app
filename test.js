@@ -14,3 +14,9 @@ a(pl('2c2d3h3s4h','QhJhTd9c8c')<2e6,'board straight not usable');
 a(pl('AhAd2c3h3s','KsQcJd9c8c')<4e6 && pl('KhQd2c3h4h','AsJcTd9c8c')>=4e6);
 a(pl('9c9d2h3h4s','9s5c5d7h8h')>=6e6,'full house 999 55');
 console.log('all evaluator tests pass');
+// head-to-head
+const r=C.mcH2H(P('AsAhKsKhQd'),P('7c2d9h4s3c'),20000);
+a(Math.abs(r.w1+r.w2+r.t-1)<1e-9);a(r.w1>0.56&&r.w1<0.64,'AAKK ds vs junk ~60% (pokerkit 59.8%) rainbow junk: '+JSON.stringify(r));
+const m=C.mcH2H(P('AsAhKsKhQd'),P('AdAcKdKcQh'),20000);a(Math.abs(m.w1-m.w2)<0.03,'mirror ~equal '+JSON.stringify(m));
+let thr=false;try{C.mcH2H(P('AsAhKsKhQd'),P('AsAcKdKcQh'),10)}catch(x){thr=true}a(thr,'dup card rejected');
+console.log('h2h tests pass',JSON.stringify(r),JSON.stringify(m));

@@ -23,45 +23,83 @@ h1{font-size:17px;text-align:center;font-weight:600;margin:14px 0}
 .tier{display:inline-block;padding:4px 10px;border-radius:8px;font-weight:600;font-size:14px;margin-left:8px;vertical-align:middle}
 .eq{display:flex;gap:10px}.eq>div{flex:1}.bar{height:6px;background:#3a3a3c;border-radius:3px;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:#0a84ff}
 .muted{color:#8e8e93;font-size:13px}
+.hand{border-radius:14px;padding:8px 8px 10px;margin-bottom:10px;border:2px solid #1c1c1e;cursor:pointer}
+.hand.act{border-color:#0a84ff;background:#0a0f1a}
+.hh{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:14px;font-weight:600}
+.hh .btn{height:30px;font-size:13px;padding:0 12px;border-radius:8px}
+.hand .slots{margin-bottom:0}.slot{font-size:22px}
+.h2h{display:flex;gap:10px}.h2h>div{flex:1}.bar2{display:flex;height:10px;border-radius:5px;overflow:hidden;margin-top:10px;background:#3a3a3c}
+.bar2 i{display:block;height:100%}.p1c{color:#0a84ff}.p2c{color:#ff9f0a}
 </style></head><body>
 <h1>PLO5 Preflop Evaluator</h1>
-<div class="slots" id="slots"></div>
+<div class="hand act" id="hd0"><div class="hh"><span class="p1c">Player 1</span><button class="btn" id="clr0">Clear</button></div><div class="slots" id="slots0"></div></div>
+<div class="hand" id="hd1"><div class="hh"><span class="p2c">Player 2 <span class="muted" id="p2hint">(optional)</span></span><button class="btn" id="clr1">Clear</button></div><div class="slots" id="slots1"></div></div>
 <div class="pick"><div class="suits" id="suits"></div><div class="grid" id="grid"></div></div>
-<div class="acts"><button class="btn" id="clr">Clear</button><button class="btn orange" id="rnd">Random hand</button></div>
-<div id="out"><div class="card muted">Pick 5 cards: choose a suit, then tap ranks. Tap a filled slot to remove it.</div></div>
+<div class="acts"><button class="btn orange" id="rnd">Random hand</button></div>
+<div id="hout"></div><div id="out"><div class="card muted">Pick 5 cards for Player 1: choose a suit, then tap ranks. Tap a filled slot to remove it. Tap Player 2 to enter a second hand for head-to-head equity.</div></div>
+<div id="out2"></div>
 <script id="core">/*CORE*/</script>
 <script>
 var DIST=/*DIST*/;
-var SYM=['♠','♥','♦','♣'],CLS=['k','r','d','c'],hand=[],suit=0,job=0;
-var worker=new Worker(URL.createObjectURL(new Blob([document.getElementById('core').textContent+
- ';onmessage=function(e){var d=e.data,h=d.h,n=d.n,t0=Date.now();var e4=0,e1=0,done=0,chunk=2000;'+
- 'while(done<n){e4+=mcEquity(h,3,chunk)*chunk;e1+=mcEquity(h,1,chunk)*chunk;done+=chunk;postMessage({id:d.id,e4:e4/done,e1:e1/done,done:done,fin:done>=n});}}'],{type:'text/javascript'})));
-worker.onmessage=function(e){var d=e.data;if(d.id!==job)return;showEq(d);};
+var SYM=['♠','♥','♦','♣'],CLS=['k','r','d','c'],hands=[[],[]],act=0,suit=0,jobs=[0,0,0],hand=hands[0];
+var SRC=document.getElementById('core').textContent+
+ '\n;onmessage=function(e){var d=e.data,chunk=2000,done=0;if(d.h2){var w1=0,w2=0,t=0;while(done<d.n){var r=mcH2H(d.h,d.h2,chunk);w1+=r.w1*chunk;w2+=r.w2*chunk;t+=r.t*chunk;done+=chunk;postMessage({id:d.id,w1:w1/done,w2:w2/done,t:t/done,done:done,fin:done>=d.n});}return;}'+
+ 'var e4=0,e1=0;while(done<d.n){e4+=mcEquity(d.h,3,chunk)*chunk;e1+=mcEquity(d.h,1,chunk)*chunk;done+=chunk;postMessage({id:d.id,e4:e4/done,e1:e1/done,done:done,fin:done>=d.n});}}';
+var URLW=URL.createObjectURL(new Blob([SRC],{type:'text/javascript'})),workers=[];
+// one worker per job type (0=P1 equity, 1=P2 equity, 2=head-to-head); restart a worker to cancel stale work
+function run(k,msg,cb){if(workers[k])workers[k].terminate();var w=workers[k]=new Worker(URLW);var id=++jobs[k];msg.id=id;w.onmessage=function(e){if(e.data.id===jobs[k])cb(e.data);};w.postMessage(msg);}
+function stop(k){jobs[k]++;if(workers[k]){workers[k].terminate();workers[k]=null;}}
 function lab(c){return '<span class="'+CLS[c&3]+'">'+RANKS[c>>2].replace('T','10')+SYM[c&3]+'</span>';}
+function usedBy(c){return hands[0].indexOf(c)>=0||hands[1].indexOf(c)>=0;}
 function render(){
- var s='';for(var i=0;i<5;i++){var c=hand[i];s+='<div class="slot'+(c!=null?' f':i===hand.length?' sel':'')+'" data-i="'+i+'">'+(c!=null?lab(c):'')+'</div>';}
- slots.innerHTML=s;
+ for(var p=0;p<2;p++){var hd=hands[p],s='';for(var i=0;i<5;i++){var c=hd[i];s+='<div class="slot'+(c!=null?' f':(p===act&&i===hd.length)?' sel':'')+'" data-i="'+i+'">'+(c!=null?lab(c):'')+'</div>';}
+  document.getElementById('slots'+p).innerHTML=s;document.getElementById('hd'+p).className='hand'+(p===act?' act':'');}
  suits.innerHTML=SYM.map(function(x,i){return '<button class="btn '+(i===suit?'on ':'')+'" data-s="'+i+'"><span class="'+CLS[i]+'" style="'+(i===0?'color:#fff':'')+'">'+x+'</span></button>';}).join('');
- var g='';for(var r=12;r>=0;r--){var c=r*4+suit;g+='<button class="btn" data-c="'+c+'" '+(hand.indexOf(c)>=0||hand.length>=5?'disabled':'')+'>'+RANKS[r].replace('T','10')+'</button>';}
- grid.innerHTML=g+'';
+ var g='',full=hands[act].length>=5;for(var r=12;r>=0;r--){var c=r*4+suit;g+='<button class="btn" data-c="'+c+'" '+(usedBy(c)||full?'disabled':'')+'>'+RANKS[r].replace('T','10')+'</button>';}
+ grid.innerHTML=g;
+ rnd.textContent='Random hand (P'+(act+1)+')';
 }
-slots.onclick=function(e){var t=e.target.closest('.slot');if(!t)return;var i=+t.dataset.i;if(hand[i]!=null){hand.splice(i,1);update();}};
+[0,1].forEach(function(p){
+ document.getElementById('hd'+p).onclick=function(e){if(e.target.closest('button'))return;var t=e.target.closest('.slot');
+  if(t&&act===p&&hands[p][+t.dataset.i]!=null){hands[p].splice(+t.dataset.i,1);update(p);return;}
+  if(act!==p){act=p;render();}};
+ document.getElementById('clr'+p).onclick=function(){hands[p].length=0;act=p;update(p);};
+});
 suits.onclick=function(e){var t=e.target.closest('[data-s]');if(t){suit=+t.dataset.s;render();}};
-grid.onclick=function(e){var t=e.target.closest('[data-c]');if(t&&!t.disabled){hand.push(+t.dataset.c);update();}};
-clr.onclick=function(){hand=[];update();};
-rnd.onclick=function(){var d=[];for(var i=0;i<52;i++)d.push(i);hand=[];for(i=0;i<5;i++)hand.push(d.splice(Math.floor(Math.random()*d.length),1)[0]);update();};
+grid.onclick=function(e){var t=e.target.closest('[data-c]');if(t&&!t.disabled){var p=act;hands[p].push(+t.dataset.c);if(hands[p].length===5&&p===0&&hands[1].length<5)act=1;update(p);}};
+rnd.onclick=function(){var p=act,d=[];for(var i=0;i<52;i++)if(hands[1-p].indexOf(i)<0)d.push(i);hands[p].length=0;for(i=0;i<5;i++)hands[p].push(d.splice(Math.floor(Math.random()*d.length),1)[0]);update(p);};
 function pct(eq){var n=DIST.length-1;if(eq<=DIST[0])return 0;if(eq>=DIST[n])return 100;for(var i=1;i<=n;i++)if(DIST[i]>=eq){var f=(eq-DIST[i-1])/((DIST[i]-DIST[i-1])||1);return (i-1+f)/n*100;}}
 var TC={'Premium':'#30d158','Open any position':'#0a84ff','Late position':'#ffd60a','Limp/call in position':'#ff9f0a','Fold':'#ff453a'};
-function update(){render();job++;
- if(hand.length<5){out.innerHTML='<div class="card muted">Pick '+(5-hand.length)+' more card'+(hand.length===4?'':'s')+'.</div>';return;}
- var h=hand.slice().sort(function(a,b){return b-a;}),H=heuristic(h);
- out.innerHTML='<div class="card"><div class="lbl">Heuristic score</div><div><span class="big">'+H.score+'</span><span class="tier" style="background:'+TC[H.tier]+';color:#000">'+H.tier+'</span></div>'+
+function sorted(h){return h.slice().sort(function(a,b){return b-a;});}
+function heurCard(H,title){return '<div class="card">'+(title?'<div style="font-weight:600;margin-bottom:6px">'+title+'</div>':'')+'<div class="lbl">Heuristic score</div><div><span class="big">'+H.score+'</span><span class="tier" style="background:'+TC[H.tier]+';color:#000">'+H.tier+'</span></div>'+
  H.breakdown.map(function(b){return '<div class="row"><span>'+b[0]+'</span><span class="'+(b[1]>0?'pos':'neg')+'">'+(b[1]>0?'+':'')+b[1]+'</span></div>';}).join('')+
- '<div class="muted" style="margin-top:6px">Premium 16+ · Open 12–15 · Late 8–11 · Limp/call 5–7 · Fold &lt;5</div></div>'+
+ '<div class="muted" style="margin-top:6px">Premium 16+ · Open 12–15 · Late 8–11 · Limp/call 5–7 · Fold &lt;5</div></div>';}
+function update(changed){render();
+ // Player 1 (unchanged behaviour)
+ if(changed===0||changed==null){stop(0);
+ if(hands[0].length<5){out.innerHTML='<div class="card muted">Pick '+(5-hands[0].length)+' more card'+(hands[0].length===4?'':'s')+' for Player 1.</div>';}
+ else{var h=sorted(hands[0]);
+ out.innerHTML=heurCard(heuristic(h),'<span class="p1c">Player 1</span>')+
  '<div class="card"><div class="lbl">All-in preflop equity (Monte Carlo)</div><div class="eq" style="margin-top:6px"><div><div class="muted">vs 3 random (4-way)</div><div class="big" id="e4">…</div><div class="bar"><i id="b4" style="width:0"></i></div></div>'+
  '<div><div class="muted">vs 1 random</div><div class="big" id="e1">…</div><div class="bar"><i id="b1" style="width:0"></i></div></div></div><div class="muted" id="tr" style="margin-top:8px"></div></div>'+
  '<div class="card"><div class="lbl">Percentile vs random PLO5 hands (4-way equity)</div><div class="big" id="pc">…</div><div class="muted">Based on 2,000 random hands, 2,000 trials each. Random-hand average 4-way equity = 25%.</div></div>';
- worker.postMessage({id:job,h:h,n:30000});
+ run(0,{h:h,n:30000},showEq);}}
+ // Player 2
+ if(changed===1||changed==null){stop(1);
+ if(hands[1].length<5){out2.innerHTML=hands[1].length?'<div class="card muted">Pick '+(5-hands[1].length)+' more card'+(hands[1].length===4?'':'s')+' for Player 2.</div>':'';}
+ else{var h2=sorted(hands[1]);
+ out2.innerHTML=heurCard(heuristic(h2),'<span class="p2c">Player 2</span>')+'<div class="card"><div class="lbl">Player 2 percentile (4-way equity)</div><div class="big" id="pc2">…</div><div class="muted" id="tr2"></div></div>';
+ run(1,{h:h2,n:30000},function(d){var p=pct(d.e4);pc2.textContent='Top '+Math.max(0.1,100-p).toFixed(1)+'%  ('+p.toFixed(1)+'th pct)';tr2.textContent='4-way '+(d.e4*100).toFixed(1)+'% · HU vs random '+(d.e1*100).toFixed(1)+'% · '+(d.fin?'':'Running… ')+d.done.toLocaleString()+' trials';});}}
+ document.getElementById('p2hint').style.display=hands[1].length?'none':'';
+ // Head-to-head
+ stop(2);
+ if(hands[0].length===5&&hands[1].length===5){
+  hout.innerHTML='<div class="card"><div class="lbl">Head-to-head all-in preflop (P1 vs P2)</div><div class="h2h" style="margin-top:6px"><div><div class="muted p1c">Player 1 win</div><div class="big p1c" id="w1">…</div></div><div style="text-align:center;flex:.7"><div class="muted">Tie</div><div class="big" id="wt" style="font-size:22px;line-height:41px">…</div></div><div style="text-align:right"><div class="muted p2c">Player 2 win</div><div class="big p2c" id="w2">…</div></div></div>'+
+  '<div class="bar2"><i id="g1" style="background:#0a84ff;width:0"></i><i id="gt" style="background:#8e8e93;width:0"></i><i id="g2" style="background:#ff9f0a;width:0"></i></div><div class="muted" id="trh" style="margin-top:8px"></div></div>';
+  run(2,{h:sorted(hands[0]),h2:sorted(hands[1]),n:30000},function(d){w1.textContent=(d.w1*100).toFixed(1)+'%';w2.textContent=(d.w2*100).toFixed(1)+'%';wt.textContent=(d.t*100).toFixed(1)+'%';
+   g1.style.width=d.w1*100+'%';gt.style.width=d.t*100+'%';g2.style.width=d.w2*100+'%';
+   trh.textContent='Equity (ties split): P1 '+((d.w1+d.t/2)*100).toFixed(1)+'% · P2 '+((d.w2+d.t/2)*100).toFixed(1)+'% · '+(d.fin?'':'Running… ')+d.done.toLocaleString()+' boards';});
+ } else hout.innerHTML='';
 }
 function showEq(d){e4.textContent=(d.e4*100).toFixed(1)+'%';e1.textContent=(d.e1*100).toFixed(1)+'%';b4.style.width=d.e4*100+'%';b1.style.width=d.e1*100+'%';
  tr.textContent=(d.fin?'':'Running… ')+d.done.toLocaleString()+' trials each';var p=pct(d.e4);pc.textContent='Top '+Math.max(0.1,100-p).toFixed(1)+'%  ('+p.toFixed(1)+'th pct)';}
