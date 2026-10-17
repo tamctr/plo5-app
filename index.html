@@ -1,0 +1,154 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000"><title>PLO5 Preflop</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Helvetica,sans-serif;padding:env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 16px)}
+h1{font-size:17px;text-align:center;font-weight:600;margin:14px 0}
+.slots{display:flex;gap:8px;justify-content:center;margin-bottom:14px}
+.slot{width:17%;aspect-ratio:5/7;border-radius:10px;background:#1c1c1e;border:2px dashed #3a3a3c;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700}
+.slot.f{background:#fff;border:2px solid #fff}.slot.sel{border-color:#0a84ff;border-style:solid}
+.r{color:#ff3b30}.k{color:#000}.d{color:#0a84ff}.c{color:#30d158}
+.pick{display:flex;gap:8px}.suits{display:flex;flex-direction:column;gap:8px}
+.btn{background:#2c2c2e;border:none;color:#fff;border-radius:12px;font-size:20px;font-weight:600;height:46px;cursor:pointer}
+.btn:active{background:#48484a}.btn:disabled{opacity:.25}
+.suits .btn{width:52px}.suits .btn.on{background:#636366;outline:2px solid #fff}
+.grid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.acts{display:flex;gap:8px;margin:10px 0}.acts .btn{flex:1;font-size:16px}
+.orange{background:#ff9f0a!important;color:#000}
+.card{background:#1c1c1e;border-radius:14px;padding:14px;margin-top:10px}
+.big{font-size:34px;font-weight:700}.lbl{color:#8e8e93;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+.row{display:flex;justify-content:space-between;padding:4px 0;font-size:15px}.pos{color:#30d158}.neg{color:#ff453a}
+.tier{display:inline-block;padding:4px 10px;border-radius:8px;font-weight:600;font-size:14px;margin-left:8px;vertical-align:middle}
+.eq{display:flex;gap:10px}.eq>div{flex:1}.bar{height:6px;background:#3a3a3c;border-radius:3px;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:#0a84ff}
+.muted{color:#8e8e93;font-size:13px}
+</style></head><body>
+<h1>PLO5 Preflop Evaluator</h1>
+<div class="slots" id="slots"></div>
+<div class="pick"><div class="suits" id="suits"></div><div class="grid" id="grid"></div></div>
+<div class="acts"><button class="btn" id="clr">Clear</button><button class="btn orange" id="rnd">Random hand</button></div>
+<div id="out"><div class="card muted">Pick 5 cards: choose a suit, then tap ranks. Tap a filled slot to remove it.</div></div>
+<script id="core">// ==CORE== shared by page, worker and node
+function eval5(a,b,c,d,e){
+  var r0=a>>2,r1=b>>2,r2=c>>2,r3=d>>2,r4=e>>2;
+  var fl=((a&3)===(b&3))&&((a&3)===(c&3))&&((a&3)===(d&3))&&((a&3)===(e&3));
+  var cnt=[0,0,0,0,0,0,0,0,0,0,0,0,0];cnt[r0]++;cnt[r1]++;cnt[r2]++;cnt[r3]++;cnt[r4]++;
+  var mask=(1<<r0)|(1<<r1)|(1<<r2)|(1<<r3)|(1<<r4);
+  var st=-1;
+  if(((mask>>>0)&(mask-1))!==0 || true){
+    var bits=0;for(var i=0;i<13;i++)if(cnt[i])bits++;
+    if(bits===5){
+      for(var h=12;h>=4;h--){var m=31<<(h-4);if((mask&m)===m){st=h;break;}}
+      if(st<0&&mask===0x100F)st=3; // wheel A2345
+    }
+  }
+  if(st>=0&&fl)return 8e6+st;
+  // build kicker key ordered by (count desc, rank desc)
+  var q=-1,t=-1,p1=-1,p2=-1,k=0;
+  for(var r=12;r>=0;r--){var n=cnt[r];if(n===4)q=r;else if(n===3)t=r;else if(n===2){if(p1<0)p1=r;else p2=r;}}
+  var kick=0;
+  if(q>=0){for(r=12;r>=0;r--)if(cnt[r]===1)kick=r;return 7e6+q*13+kick;}
+  if(t>=0&&p1>=0)return 6e6+t*13+p1;
+  if(fl){kick=0;for(r=12;r>=0;r--)if(cnt[r])kick=kick*13+r;return 5e6+kick;}
+  if(st>=0)return 4e6+st;
+  kick=0;for(r=12;r>=0;r--)if(cnt[r]===1)kick=kick*13+r;
+  if(t>=0)return 3e6+t*169+kick;
+  if(p2>=0)return 2e6+(p1*13+p2)*13+kick;
+  if(p1>=0)return 1e6+p1*2197+kick;
+  return kick;
+}
+var H2=[],B3=[];
+(function(){for(var i=0;i<5;i++)for(var j=i+1;j<5;j++){H2.push([i,j]);for(var k=j+1;k<5;k++)B3.push([i,j,k]);}})();
+function evalPLO(h,b){var best=0;for(var x=0;x<10;x++){var p=H2[x],c1=h[p[0]],c2=h[p[1]];for(var y=0;y<10;y++){var q=B3[y];var v=eval5(c1,c2,b[q[0]],b[q[1]],b[q[2]]);if(v>best)best=v;}}return best;}
+// Monte Carlo: equity of hero vs nOpp random hands; ties split
+function mcEquity(hero,nOpp,trials,rnd){
+  rnd=rnd||Math.random;var used=new Array(52).fill(false);hero.forEach(function(c){used[c]=true;});
+  var deck=[];for(var c=0;c<52;c++)if(!used[c])deck.push(c);
+  var need=5*nOpp+5,eq=0,n=deck.length,opp=[],board=[0,0,0,0,0];
+  for(var o=0;o<nOpp;o++)opp.push([0,0,0,0,0]);
+  for(var t=0;t<trials;t++){
+    for(var i=0;i<need;i++){var j=i+Math.floor(rnd()*(n-i));var tmp=deck[i];deck[i]=deck[j];deck[j]=tmp;}
+    var idx=0;for(o=0;o<nOpp;o++)for(i=0;i<5;i++)opp[o][i]=deck[idx++];
+    for(i=0;i<5;i++)board[i]=deck[idx++];
+    var hv=evalPLO(hero,board),win=true,ties=1;
+    for(o=0;o<nOpp;o++){var v=evalPLO(opp[o],board);if(v>hv){win=false;break;}if(v===hv)ties++;}
+    if(win)eq+=1/ties;
+  }
+  return eq/trials;
+}
+var RANKS='23456789TJQKA',SUITS='shdc';
+function parseHand(s){var out=[];for(var i=0;i<s.length;i+=2)out.push(RANKS.indexOf(s[i])*4+SUITS.indexOf(s[i+1]));return out;}
+function heuristic(h){
+  var br=[],score=0,rk=h.map(function(c){return c>>2;}),su=h.map(function(c){return c&3;});
+  var cnt=new Array(13).fill(0);rk.forEach(function(r){cnt[r]++;});
+  var used=[false,false,false,false,false];
+  function add(l,v){if(v){br.push([l,v]);score+=v;}}
+  // pairs
+  var prs=[];for(var r=12;r>=0;r--)if(cnt[r]>=2)prs.push(r);
+  if(prs.length){var p=prs[0],pv=p===12?8:p===11?6:p===10?5:p===9?4:p===8?3:p>=5?2:1;add('Pair '+RANKS[p]+RANKS[p],pv);
+    if(prs.length>1&&prs[1]>=8)add('Second pair '+RANKS[prs[1]]+RANKS[prs[1]],1);
+    rk.forEach(function(r,i){if(cnt[r]>=2)used[i]=true;});}
+  for(r=0;r<13;r++)if(cnt[r]>=3)add((cnt[r]===4?'Quads ':'Trips ')+RANKS[r],-3);
+  // rundown: values 1..14 (ace both)
+  var has={};rk.forEach(function(r){has[r+2]=true;if(r===12)has[1]=true;});
+  var cats=[[5,4,8,'5-card rundown'],[4,3,6,'4 connected'],[4,4,4,'4 with one gap'],[3,2,2,'3 connected'],[3,3,1,'3 with one gap']];
+  var run=null;
+  for(var ci=0;ci<cats.length&&!run;ci++){var need=cats[ci][0],span=cats[ci][1];
+    for(var top=14;top>=1+span&&!run;top--){if(!has[top]||!has[top-span])continue;var c=0,mem=[];for(var v=top-span;v<=top;v++)if(has[v]){c++;mem.push(v);}
+      if(c>=need)run={cat:cats[ci],top:top,mem:mem};}}
+  if(run){add(run.cat[3]+' ('+run.mem.slice().reverse().map(function(v){return RANKS[(v===1?14:v)-2];}).join('')+')',run.cat[2]);
+    if(run.top>=10)add('Run top card T+',2);else if(run.top<=7)add('Run top card ≤7',-2);
+    rk.forEach(function(r,i){if(run.mem.indexOf(r+2)>=0||(r===12&&run.mem.indexOf(1)>=0))used[i]=true;});}
+  // suits
+  var sc=[0,0,0,0];su.forEach(function(s){sc[s]++;});
+  var groups=[];for(var s=0;s<4;s++)if(sc[s]>=2){var mx=-1;h.forEach(function(c){if((c&3)===s&&(c>>2)>mx)mx=c>>2;});groups.push({s:s,top:mx,n:sc[s],v:mx===12?3:mx===11?1:0.5});}
+  groups.sort(function(a,b){return b.v-a.v||b.top-a.top;});
+  groups.slice(0,2).forEach(function(g,i){add((i?'Second suit ':'Suited ')+RANKS[g.top]+'-high '+'♠♥♦♣'[g.s],g.v);});
+  groups.forEach(function(g){if(g.n>=3)add(g.n+' of one suit','♠♥♦♣'[g.s]&&-1);su.forEach(function(x,i){if(x===g.s)used[i]=true;});});
+  var aceSuit={};groups.forEach(function(g){if(g.top===12)aceSuit[g.s]=true;});
+  var dang=used.filter(function(u){return !u;}).length;if(dang)add(dang+' dangler'+(dang>1?'s':''),-2*dang);
+  var low=0;h.forEach(function(c){if((c>>2)<=3&&!aceSuit[c&3])low++;});if(low)add(low+' card'+(low>1?'s':'')+' 5 or lower',-low);
+  var tier=score>=16?'Premium':score>=12?'Open any position':score>=8?'Late position':score>=5?'Limp/call in position':'Fold';
+  return {score:score,breakdown:br,tier:tier};
+}
+if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic};
+// ==ENDCORE==
+</script>
+<script>
+var DIST=[0.109,0.1303,0.1568,0.1614,0.166,0.1701,0.1748,0.1774,0.18,0.1823,0.1845,0.1852,0.1873,0.1887,0.1899,0.1915,0.1926,0.1937,0.1953,0.1959,0.1969,0.1979,0.1986,0.1994,0.2009,0.2018,0.2023,0.203,0.2038,0.2043,0.2054,0.2064,0.2068,0.2077,0.2083,0.2092,0.2098,0.2107,0.2112,0.212,0.2127,0.2131,0.2137,0.2144,0.2151,0.2157,0.2162,0.2169,0.2175,0.2179,0.2183,0.2188,0.2194,0.2199,0.2204,0.221,0.2217,0.2223,0.2231,0.2239,0.2244,0.2248,0.2253,0.2262,0.2268,0.2274,0.2279,0.2283,0.2289,0.2294,0.23,0.2309,0.2313,0.2318,0.2323,0.2331,0.2335,0.2341,0.2344,0.2349,0.2353,0.2362,0.2367,0.2371,0.2374,0.2379,0.2384,0.2389,0.2394,0.2397,0.2405,0.2412,0.2417,0.2419,0.2427,0.2438,0.2442,0.2449,0.2453,0.2458,0.2462,0.247,0.2473,0.2483,0.2487,0.2492,0.2499,0.2502,0.2507,0.2508,0.2516,0.2519,0.2526,0.2534,0.2537,0.2543,0.2547,0.2552,0.2556,0.2562,0.2567,0.2575,0.2578,0.2584,0.259,0.2598,0.2605,0.2612,0.262,0.2626,0.2631,0.2639,0.2647,0.2653,0.2659,0.2664,0.2672,0.268,0.2688,0.2692,0.2697,0.2703,0.2711,0.2722,0.2728,0.274,0.275,0.2757,0.2763,0.2769,0.2774,0.278,0.2787,0.2795,0.2804,0.281,0.2816,0.2824,0.2832,0.2837,0.2843,0.2853,0.2863,0.2869,0.2874,0.2882,0.2893,0.2908,0.2918,0.2928,0.2936,0.2948,0.2954,0.2964,0.2972,0.2983,0.2998,0.3009,0.3027,0.3045,0.3054,0.3062,0.3078,0.3087,0.3107,0.313,0.3144,0.3166,0.3185,0.3199,0.3232,0.3246,0.3277,0.3329,0.3359,0.3404,0.3445,0.3506,0.3578,0.3662,0.3912];
+var SYM=['♠','♥','♦','♣'],CLS=['k','r','d','c'],hand=[],suit=0,job=0;
+var worker=new Worker(URL.createObjectURL(new Blob([document.getElementById('core').textContent+
+ ';onmessage=function(e){var d=e.data,h=d.h,n=d.n,t0=Date.now();var e4=0,e1=0,done=0,chunk=2000;'+
+ 'while(done<n){e4+=mcEquity(h,3,chunk)*chunk;e1+=mcEquity(h,1,chunk)*chunk;done+=chunk;postMessage({id:d.id,e4:e4/done,e1:e1/done,done:done,fin:done>=n});}}'],{type:'text/javascript'})));
+worker.onmessage=function(e){var d=e.data;if(d.id!==job)return;showEq(d);};
+function lab(c){return '<span class="'+CLS[c&3]+'">'+RANKS[c>>2].replace('T','10')+SYM[c&3]+'</span>';}
+function render(){
+ var s='';for(var i=0;i<5;i++){var c=hand[i];s+='<div class="slot'+(c!=null?' f':i===hand.length?' sel':'')+'" data-i="'+i+'">'+(c!=null?lab(c):'')+'</div>';}
+ slots.innerHTML=s;
+ suits.innerHTML=SYM.map(function(x,i){return '<button class="btn '+(i===suit?'on ':'')+'" data-s="'+i+'"><span class="'+CLS[i]+'" style="'+(i===0?'color:#fff':'')+'">'+x+'</span></button>';}).join('');
+ var g='';for(var r=12;r>=0;r--){var c=r*4+suit;g+='<button class="btn" data-c="'+c+'" '+(hand.indexOf(c)>=0||hand.length>=5?'disabled':'')+'>'+RANKS[r].replace('T','10')+'</button>';}
+ grid.innerHTML=g+'';
+}
+slots.onclick=function(e){var t=e.target.closest('.slot');if(!t)return;var i=+t.dataset.i;if(hand[i]!=null){hand.splice(i,1);update();}};
+suits.onclick=function(e){var t=e.target.closest('[data-s]');if(t){suit=+t.dataset.s;render();}};
+grid.onclick=function(e){var t=e.target.closest('[data-c]');if(t&&!t.disabled){hand.push(+t.dataset.c);update();}};
+clr.onclick=function(){hand=[];update();};
+rnd.onclick=function(){var d=[];for(var i=0;i<52;i++)d.push(i);hand=[];for(i=0;i<5;i++)hand.push(d.splice(Math.floor(Math.random()*d.length),1)[0]);update();};
+function pct(eq){var n=DIST.length-1;if(eq<=DIST[0])return 0;if(eq>=DIST[n])return 100;for(var i=1;i<=n;i++)if(DIST[i]>=eq){var f=(eq-DIST[i-1])/((DIST[i]-DIST[i-1])||1);return (i-1+f)/n*100;}}
+var TC={'Premium':'#30d158','Open any position':'#0a84ff','Late position':'#ffd60a','Limp/call in position':'#ff9f0a','Fold':'#ff453a'};
+function update(){render();job++;
+ if(hand.length<5){out.innerHTML='<div class="card muted">Pick '+(5-hand.length)+' more card'+(hand.length===4?'':'s')+'.</div>';return;}
+ var h=hand.slice().sort(function(a,b){return b-a;}),H=heuristic(h);
+ out.innerHTML='<div class="card"><div class="lbl">Heuristic score</div><div><span class="big">'+H.score+'</span><span class="tier" style="background:'+TC[H.tier]+';color:#000">'+H.tier+'</span></div>'+
+ H.breakdown.map(function(b){return '<div class="row"><span>'+b[0]+'</span><span class="'+(b[1]>0?'pos':'neg')+'">'+(b[1]>0?'+':'')+b[1]+'</span></div>';}).join('')+
+ '<div class="muted" style="margin-top:6px">Premium 16+ · Open 12–15 · Late 8–11 · Limp/call 5–7 · Fold &lt;5</div></div>'+
+ '<div class="card"><div class="lbl">All-in preflop equity (Monte Carlo)</div><div class="eq" style="margin-top:6px"><div><div class="muted">vs 3 random (4-way)</div><div class="big" id="e4">…</div><div class="bar"><i id="b4" style="width:0"></i></div></div>'+
+ '<div><div class="muted">vs 1 random</div><div class="big" id="e1">…</div><div class="bar"><i id="b1" style="width:0"></i></div></div></div><div class="muted" id="tr" style="margin-top:8px"></div></div>'+
+ '<div class="card"><div class="lbl">Percentile vs random PLO5 hands (4-way equity)</div><div class="big" id="pc">…</div><div class="muted">Based on 2,000 random hands, 2,000 trials each. Random-hand average 4-way equity = 25%.</div></div>';
+ worker.postMessage({id:job,h:h,n:30000});
+}
+function showEq(d){e4.textContent=(d.e4*100).toFixed(1)+'%';e1.textContent=(d.e1*100).toFixed(1)+'%';b4.style.width=d.e4*100+'%';b1.style.width=d.e1*100+'%';
+ tr.textContent=(d.fin?'':'Running… ')+d.done.toLocaleString()+' trials each';var p=pct(d.e4);pc.textContent='Top '+Math.max(0.1,100-p).toFixed(1)+'%  ('+p.toFixed(1)+'th pct)';}
+render();
+</script></body></html>

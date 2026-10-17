@@ -1,0 +1,69 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000"><title>PLO5 Preflop</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#000;color:#fff;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Helvetica,sans-serif;padding:env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 16px)}
+h1{font-size:17px;text-align:center;font-weight:600;margin:14px 0}
+.slots{display:flex;gap:8px;justify-content:center;margin-bottom:14px}
+.slot{width:17%;aspect-ratio:5/7;border-radius:10px;background:#1c1c1e;border:2px dashed #3a3a3c;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:700}
+.slot.f{background:#fff;border:2px solid #fff}.slot.sel{border-color:#0a84ff;border-style:solid}
+.r{color:#ff3b30}.k{color:#000}.d{color:#0a84ff}.c{color:#30d158}
+.pick{display:flex;gap:8px}.suits{display:flex;flex-direction:column;gap:8px}
+.btn{background:#2c2c2e;border:none;color:#fff;border-radius:12px;font-size:20px;font-weight:600;height:46px;cursor:pointer}
+.btn:active{background:#48484a}.btn:disabled{opacity:.25}
+.suits .btn{width:52px}.suits .btn.on{background:#636366;outline:2px solid #fff}
+.grid{flex:1;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.acts{display:flex;gap:8px;margin:10px 0}.acts .btn{flex:1;font-size:16px}
+.orange{background:#ff9f0a!important;color:#000}
+.card{background:#1c1c1e;border-radius:14px;padding:14px;margin-top:10px}
+.big{font-size:34px;font-weight:700}.lbl{color:#8e8e93;font-size:13px;text-transform:uppercase;letter-spacing:.5px}
+.row{display:flex;justify-content:space-between;padding:4px 0;font-size:15px}.pos{color:#30d158}.neg{color:#ff453a}
+.tier{display:inline-block;padding:4px 10px;border-radius:8px;font-weight:600;font-size:14px;margin-left:8px;vertical-align:middle}
+.eq{display:flex;gap:10px}.eq>div{flex:1}.bar{height:6px;background:#3a3a3c;border-radius:3px;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:#0a84ff}
+.muted{color:#8e8e93;font-size:13px}
+</style></head><body>
+<h1>PLO5 Preflop Evaluator</h1>
+<div class="slots" id="slots"></div>
+<div class="pick"><div class="suits" id="suits"></div><div class="grid" id="grid"></div></div>
+<div class="acts"><button class="btn" id="clr">Clear</button><button class="btn orange" id="rnd">Random hand</button></div>
+<div id="out"><div class="card muted">Pick 5 cards: choose a suit, then tap ranks. Tap a filled slot to remove it.</div></div>
+<script id="core">/*CORE*/</script>
+<script>
+var DIST=/*DIST*/;
+var SYM=['♠','♥','♦','♣'],CLS=['k','r','d','c'],hand=[],suit=0,job=0;
+var worker=new Worker(URL.createObjectURL(new Blob([document.getElementById('core').textContent+
+ ';onmessage=function(e){var d=e.data,h=d.h,n=d.n,t0=Date.now();var e4=0,e1=0,done=0,chunk=2000;'+
+ 'while(done<n){e4+=mcEquity(h,3,chunk)*chunk;e1+=mcEquity(h,1,chunk)*chunk;done+=chunk;postMessage({id:d.id,e4:e4/done,e1:e1/done,done:done,fin:done>=n});}}'],{type:'text/javascript'})));
+worker.onmessage=function(e){var d=e.data;if(d.id!==job)return;showEq(d);};
+function lab(c){return '<span class="'+CLS[c&3]+'">'+RANKS[c>>2].replace('T','10')+SYM[c&3]+'</span>';}
+function render(){
+ var s='';for(var i=0;i<5;i++){var c=hand[i];s+='<div class="slot'+(c!=null?' f':i===hand.length?' sel':'')+'" data-i="'+i+'">'+(c!=null?lab(c):'')+'</div>';}
+ slots.innerHTML=s;
+ suits.innerHTML=SYM.map(function(x,i){return '<button class="btn '+(i===suit?'on ':'')+'" data-s="'+i+'"><span class="'+CLS[i]+'" style="'+(i===0?'color:#fff':'')+'">'+x+'</span></button>';}).join('');
+ var g='';for(var r=12;r>=0;r--){var c=r*4+suit;g+='<button class="btn" data-c="'+c+'" '+(hand.indexOf(c)>=0||hand.length>=5?'disabled':'')+'>'+RANKS[r].replace('T','10')+'</button>';}
+ grid.innerHTML=g+'';
+}
+slots.onclick=function(e){var t=e.target.closest('.slot');if(!t)return;var i=+t.dataset.i;if(hand[i]!=null){hand.splice(i,1);update();}};
+suits.onclick=function(e){var t=e.target.closest('[data-s]');if(t){suit=+t.dataset.s;render();}};
+grid.onclick=function(e){var t=e.target.closest('[data-c]');if(t&&!t.disabled){hand.push(+t.dataset.c);update();}};
+clr.onclick=function(){hand=[];update();};
+rnd.onclick=function(){var d=[];for(var i=0;i<52;i++)d.push(i);hand=[];for(i=0;i<5;i++)hand.push(d.splice(Math.floor(Math.random()*d.length),1)[0]);update();};
+function pct(eq){var n=DIST.length-1;if(eq<=DIST[0])return 0;if(eq>=DIST[n])return 100;for(var i=1;i<=n;i++)if(DIST[i]>=eq){var f=(eq-DIST[i-1])/((DIST[i]-DIST[i-1])||1);return (i-1+f)/n*100;}}
+var TC={'Premium':'#30d158','Open any position':'#0a84ff','Late position':'#ffd60a','Limp/call in position':'#ff9f0a','Fold':'#ff453a'};
+function update(){render();job++;
+ if(hand.length<5){out.innerHTML='<div class="card muted">Pick '+(5-hand.length)+' more card'+(hand.length===4?'':'s')+'.</div>';return;}
+ var h=hand.slice().sort(function(a,b){return b-a;}),H=heuristic(h);
+ out.innerHTML='<div class="card"><div class="lbl">Heuristic score</div><div><span class="big">'+H.score+'</span><span class="tier" style="background:'+TC[H.tier]+';color:#000">'+H.tier+'</span></div>'+
+ H.breakdown.map(function(b){return '<div class="row"><span>'+b[0]+'</span><span class="'+(b[1]>0?'pos':'neg')+'">'+(b[1]>0?'+':'')+b[1]+'</span></div>';}).join('')+
+ '<div class="muted" style="margin-top:6px">Premium 16+ · Open 12–15 · Late 8–11 · Limp/call 5–7 · Fold &lt;5</div></div>'+
+ '<div class="card"><div class="lbl">All-in preflop equity (Monte Carlo)</div><div class="eq" style="margin-top:6px"><div><div class="muted">vs 3 random (4-way)</div><div class="big" id="e4">…</div><div class="bar"><i id="b4" style="width:0"></i></div></div>'+
+ '<div><div class="muted">vs 1 random</div><div class="big" id="e1">…</div><div class="bar"><i id="b1" style="width:0"></i></div></div></div><div class="muted" id="tr" style="margin-top:8px"></div></div>'+
+ '<div class="card"><div class="lbl">Percentile vs random PLO5 hands (4-way equity)</div><div class="big" id="pc">…</div><div class="muted">Based on 2,000 random hands, 2,000 trials each. Random-hand average 4-way equity = 25%.</div></div>';
+ worker.postMessage({id:job,h:h,n:30000});
+}
+function showEq(d){e4.textContent=(d.e4*100).toFixed(1)+'%';e1.textContent=(d.e1*100).toFixed(1)+'%';b4.style.width=d.e4*100+'%';b1.style.width=d.e1*100+'%';
+ tr.textContent=(d.fin?'':'Running… ')+d.done.toLocaleString()+' trials each';var p=pct(d.e4);pc.textContent='Top '+Math.max(0.1,100-p).toFixed(1)+'%  ('+p.toFixed(1)+'th pct)';}
+render();
+</script></body></html>
