@@ -133,7 +133,7 @@ function mcH2H(h1,h2,trials,rnd){
 }
 var RANKS='23456789TJQKA',SUITS='shdc';
 function parseHand(s){var out=[];for(var i=0;i<s.length;i+=2)out.push(RANKS.indexOf(s[i])*4+SUITS.indexOf(s[i+1]));return out;}
-function heuristic(h){
+function heuristicOld(h){
   var br=[],score=0,rk=h.map(function(c){return c>>2;}),su=h.map(function(c){return c&3;});
   var cnt=new Array(13).fill(0);rk.forEach(function(r){cnt[r]++;});
   var used=[false,false,false,false,false];
@@ -166,7 +166,25 @@ function heuristic(h){
   var tier=score>=16?'Premium':score>=12?'Open any position':score>=8?'Late position':score>=5?'Limp/call in position':'Fold';
   return {score:score,breakdown:br,tier:tier};
 }
-if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,mcH2H:mcH2H};
+// New PLO5 point system (coach refit vs 4-way equity, 1 pt ~ 0.67pp). Features = old breakdown items (see plo5-weights/feat.js).
+var W={pAA:8,pKK:5.9,pQQ:5.55,pJJ:3.95,pTT:2.77,p97:0,p62:-0.46,pair2T:4.39,trips:-12,run5:3.23,run4c:0.78,run4g:0.58,run3c:-0.31,run3g:-0.31,topT:3.05,top7:-0.44,suitA:6.85,suitK:6.39,suitO:4.01,suit3:-1.56,dang:0,low:-2.05};
+function heuristic(h){
+  var o=heuristicOld(h),br=[],score=0;
+  o.breakdown.forEach(function(b){var l=b[0],v=b[1],k,n=1;
+    if(l.indexOf('Pair ')===0){var p=RANKS.indexOf(l[5]);k=p===12?'pAA':p===11?'pKK':p===10?'pQQ':p===9?'pJJ':p===8?'pTT':p>=5?'p97':'p62';}
+    else if(l.indexOf('Second pair')===0)k='pair2T';
+    else if(l.indexOf('Trips')===0||l.indexOf('Quads')===0)k='trips';
+    else if(l.indexOf('5-card')===0)k='run5';else if(l.indexOf('4 connected')===0)k='run4c';else if(l.indexOf('4 with')===0)k='run4g';
+    else if(l.indexOf('3 connected')===0)k='run3c';else if(l.indexOf('3 with')===0)k='run3g';
+    else if(l==='Run top card T+')k='topT';else if(l.indexOf('Run top card')===0)k='top7';
+    else if(l.indexOf('Suited')===0||l.indexOf('Second suit')===0)k=v===3?'suitA':v===1?'suitK':'suitO';
+    else if(/of one suit/.test(l))k='suit3';else if(/dangler/.test(l)){k='dang';n=-v/2;}else if(/5 or lower/.test(l)){k='low';n=-v;l=l.replace('5 or lower','2–5 (not in A-suit)');}
+    var pts=Math.round(W[k]*n*100)/100;score+=W[k]*n;br.push([l,pts,k]);});
+  score=Math.round(score*100)/100;
+  var tier=score>=12.3?'Premium':score>=8.6?'Open any position':score>=5.5?'Late position':score>=3.4?'Limp/call in position':'Fold';
+  return {score:score,breakdown:br,tier:tier,old:o};
+}
+if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,heuristicOld:heuristicOld,W:W,mcH2H:mcH2H};
 // ==ENDCORE==
 </script>
 <script>
@@ -211,9 +229,10 @@ function paint(){
   var running=(hh&&!H2.fin)||!E.fin;
   b.innerHTML='<div class="st"><span></span><span class="h">Win(%)</span><span class="h">Tie(%)</span><span class="h">Equity(%)</span><button class="chev" data-chev="'+p+'" aria-label="details">'+CHEV+'</button>'+
    '<span class="lb">'+lab+'</span><span class="v">'+f(w)+'</span><span class="v">'+f(t)+'</span><span class="v">'+f(q)+'</span></div>'+
-   '<div class="sum"><span class="tag" style="background:'+TC[H.tier]+'">'+H.tier+'</span><span>Score '+H.score+(pc!=null?' · Top '+Math.max(0.1,100-pc).toFixed(1)+'%':'')+(hh?'':' · vs 1 random')+(running?' · …':'')+'</span></div>'+
-   '<div class="det"><div class="sec">Heuristic score '+H.score+'</div>'+H.breakdown.map(function(x){return '<div class="row"><span>'+x[0]+'</span><span class="'+(x[1]>0?'pos':'neg')+'">'+(x[1]>0?'+':'')+x[1]+'</span></div>';}).join('')+
-   '<div class="muted">Premium 16+ · Open 12–15 · Late 8–11 · Limp/call 5–7 · Fold &lt;5</div>'+
+   '<div class="sum"><span class="tag" style="background:'+TC[H.tier]+'">'+H.tier+'</span><span>Score '+H.score.toFixed(2)+' <span style="color:#666">(old '+H.old.score+')</span>'+(pc!=null?' · Top '+Math.max(0.1,100-pc).toFixed(1)+'%':'')+(hh?'':' · vs 1 random')+(running?' · …':'')+'</span></div>'+
+   '<div class="det"><div class="sec">Points '+H.score.toFixed(2)+' <span style="color:#777;text-transform:none;letter-spacing:0;font-weight:400">· old: '+H.old.score+' ('+H.old.tier+')</span></div>'+(H.breakdown.length?H.breakdown.map(function(x){return '<div class="row"><span>'+x[0]+'</span><span class="'+(x[1]>0?'pos':x[1]<0?'neg':'muted')+'">'+(x[1]>0?'+':x[1]<0?'−':'')+Math.abs(x[1]).toFixed(2)+'</span></div>';}).join(''):'<div class="row"><span>No scoring features</span><span>0.00</span></div>')+
+   '<div class="row" style="border-top:1px solid #3a3a3a;margin-top:4px;font-weight:600"><span>Total</span><span>'+H.score.toFixed(2)+'</span></div>'+
+   '<div class="muted">Premium ≥12.3 (top 10%) · Open ≥8.6 (top 25%) · Late ≥5.5 (top 45%) · Limp/call ≥3.4 (top 60%) · Fold &lt;3.4. 1 pt ≈ 0.67pp 4-way equity.</div>'+
    '<div class="sec">Equity vs random hands</div><div class="row"><span>vs 3 random (4-way)</span><span>'+f(E.e4)+'%</span></div><div class="row"><span>vs 1 random (HU)</span><span>'+f(E.e1)+'%</span></div>'+
    '<div class="row"><span>Percentile (4-way)</span><span>'+(pc!=null?pc.toFixed(1)+'th':'–')+'</span></div>'+
    (hh?'<div class="sec">Head-to-head vs Player '+(2-p)+'</div><div class="row"><span>Win / Tie / Lose</span><span>'+f(w)+' / '+f(t)+' / '+f(p?H2.w1:H2.w2)+'</span></div>':'')+

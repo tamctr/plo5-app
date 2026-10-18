@@ -114,9 +114,10 @@ function paint(){
   var running=(hh&&!H2.fin)||!E.fin;
   b.innerHTML='<div class="st"><span></span><span class="h">Win(%)</span><span class="h">Tie(%)</span><span class="h">Equity(%)</span><button class="chev" data-chev="'+p+'" aria-label="details">'+CHEV+'</button>'+
    '<span class="lb">'+lab+'</span><span class="v">'+f(w)+'</span><span class="v">'+f(t)+'</span><span class="v">'+f(q)+'</span></div>'+
-   '<div class="sum"><span class="tag" style="background:'+TC[H.tier]+'">'+H.tier+'</span><span>Score '+H.score+(pc!=null?' · Top '+Math.max(0.1,100-pc).toFixed(1)+'%':'')+(hh?'':' · vs 1 random')+(running?' · …':'')+'</span></div>'+
-   '<div class="det"><div class="sec">Heuristic score '+H.score+'</div>'+H.breakdown.map(function(x){return '<div class="row"><span>'+x[0]+'</span><span class="'+(x[1]>0?'pos':'neg')+'">'+(x[1]>0?'+':'')+x[1]+'</span></div>';}).join('')+
-   '<div class="muted">Premium 16+ · Open 12–15 · Late 8–11 · Limp/call 5–7 · Fold &lt;5</div>'+
+   '<div class="sum"><span class="tag" style="background:'+TC[H.tier]+'">'+H.tier+'</span><span>Score '+H.score.toFixed(2)+' <span style="color:#666">(old '+H.old.score+')</span>'+(pc!=null?' · Top '+Math.max(0.1,100-pc).toFixed(1)+'%':'')+(hh?'':' · vs 1 random')+(running?' · …':'')+'</span></div>'+
+   '<div class="det"><div class="sec">Points '+H.score.toFixed(2)+' <span style="color:#777;text-transform:none;letter-spacing:0;font-weight:400">· old: '+H.old.score+' ('+H.old.tier+')</span></div>'+(H.breakdown.length?H.breakdown.map(function(x){return '<div class="row"><span>'+x[0]+'</span><span class="'+(x[1]>0?'pos':x[1]<0?'neg':'muted')+'">'+(x[1]>0?'+':x[1]<0?'−':'')+Math.abs(x[1]).toFixed(2)+'</span></div>';}).join(''):'<div class="row"><span>No scoring features</span><span>0.00</span></div>')+
+   '<div class="row" style="border-top:1px solid #3a3a3a;margin-top:4px;font-weight:600"><span>Total</span><span>'+H.score.toFixed(2)+'</span></div>'+
+   '<div class="muted">Premium ≥12.3 (top 10%) · Open ≥8.6 (top 25%) · Late ≥5.5 (top 45%) · Limp/call ≥3.4 (top 60%) · Fold &lt;3.4. 1 pt ≈ 0.67pp 4-way equity.</div>'+
    '<div class="sec">Equity vs random hands</div><div class="row"><span>vs 3 random (4-way)</span><span>'+f(E.e4)+'%</span></div><div class="row"><span>vs 1 random (HU)</span><span>'+f(E.e1)+'%</span></div>'+
    '<div class="row"><span>Percentile (4-way)</span><span>'+(pc!=null?pc.toFixed(1)+'th':'–')+'</span></div>'+
    (hh?'<div class="sec">Head-to-head vs Player '+(2-p)+'</div><div class="row"><span>Win / Tie / Lose</span><span>'+f(w)+' / '+f(t)+' / '+f(p?H2.w1:H2.w2)+'</span></div>':'')+

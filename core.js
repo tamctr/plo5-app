@@ -60,7 +60,7 @@ function mcH2H(h1,h2,trials,rnd){
 }
 var RANKS='23456789TJQKA',SUITS='shdc';
 function parseHand(s){var out=[];for(var i=0;i<s.length;i+=2)out.push(RANKS.indexOf(s[i])*4+SUITS.indexOf(s[i+1]));return out;}
-function heuristic(h){
+function heuristicOld(h){
   var br=[],score=0,rk=h.map(function(c){return c>>2;}),su=h.map(function(c){return c&3;});
   var cnt=new Array(13).fill(0);rk.forEach(function(r){cnt[r]++;});
   var used=[false,false,false,false,false];
@@ -93,5 +93,23 @@ function heuristic(h){
   var tier=score>=16?'Premium':score>=12?'Open any position':score>=8?'Late position':score>=5?'Limp/call in position':'Fold';
   return {score:score,breakdown:br,tier:tier};
 }
-if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,mcH2H:mcH2H};
+// New PLO5 point system (coach refit vs 4-way equity, 1 pt ~ 0.67pp). Features = old breakdown items (see plo5-weights/feat.js).
+var W={pAA:8,pKK:5.9,pQQ:5.55,pJJ:3.95,pTT:2.77,p97:0,p62:-0.46,pair2T:4.39,trips:-12,run5:3.23,run4c:0.78,run4g:0.58,run3c:-0.31,run3g:-0.31,topT:3.05,top7:-0.44,suitA:6.85,suitK:6.39,suitO:4.01,suit3:-1.56,dang:0,low:-2.05};
+function heuristic(h){
+  var o=heuristicOld(h),br=[],score=0;
+  o.breakdown.forEach(function(b){var l=b[0],v=b[1],k,n=1;
+    if(l.indexOf('Pair ')===0){var p=RANKS.indexOf(l[5]);k=p===12?'pAA':p===11?'pKK':p===10?'pQQ':p===9?'pJJ':p===8?'pTT':p>=5?'p97':'p62';}
+    else if(l.indexOf('Second pair')===0)k='pair2T';
+    else if(l.indexOf('Trips')===0||l.indexOf('Quads')===0)k='trips';
+    else if(l.indexOf('5-card')===0)k='run5';else if(l.indexOf('4 connected')===0)k='run4c';else if(l.indexOf('4 with')===0)k='run4g';
+    else if(l.indexOf('3 connected')===0)k='run3c';else if(l.indexOf('3 with')===0)k='run3g';
+    else if(l==='Run top card T+')k='topT';else if(l.indexOf('Run top card')===0)k='top7';
+    else if(l.indexOf('Suited')===0||l.indexOf('Second suit')===0)k=v===3?'suitA':v===1?'suitK':'suitO';
+    else if(/of one suit/.test(l))k='suit3';else if(/dangler/.test(l)){k='dang';n=-v/2;}else if(/5 or lower/.test(l)){k='low';n=-v;l=l.replace('5 or lower','2–5 (not in A-suit)');}
+    var pts=Math.round(W[k]*n*100)/100;score+=W[k]*n;br.push([l,pts,k]);});
+  score=Math.round(score*100)/100;
+  var tier=score>=12.3?'Premium':score>=8.6?'Open any position':score>=5.5?'Late position':score>=3.4?'Limp/call in position':'Fold';
+  return {score:score,breakdown:br,tier:tier,old:o};
+}
+if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,heuristicOld:heuristicOld,W:W,mcH2H:mcH2H};
 // ==ENDCORE==
