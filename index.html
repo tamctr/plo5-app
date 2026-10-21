@@ -41,6 +41,18 @@ header h1{flex:1;font-size:21px;font-weight:700;font-style:italic;margin:0;lette
 .det{display:none;padding:4px 6px 8px 30px}.pl.open .det{display:block}
 .row{display:flex;justify-content:space-between;padding:4px 0;font-size:16px;color:#eee}.row span:last-child{font-variant-numeric:tabular-nums}
 .pos{color:#4cd964}.neg{color:#ff5a4f}
+.row.tot{border-top:1px solid #3a3a3a;margin-top:4px;font-weight:600}
+.sum{flex-wrap:wrap}
+.sm .pt{grid-template-columns:34px 1fr 34px;cursor:pointer}.sm .pt h2{font-size:17px}
+.sm .chev{grid-column:3;grid-row:1}.sm.open .chev svg{transform:rotate(180deg)}
+.smb{display:none;padding:2px 2px 10px}.sm.open .smb{display:block}
+.fg{display:grid;grid-template-columns:1fr 1fr;gap:8px 10px}.fg label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:#aaa;text-transform:uppercase;letter-spacing:.4px}
+.fg .w2{grid-column:1 / span 2}
+.fg select,.fg input{background:#333;color:#fff;border:1px solid #555;border-radius:8px;font-size:16px;padding:9px 8px;width:100%;font-family:inherit;-webkit-appearance:none;appearance:none}
+.fg select{background-image:linear-gradient(45deg,transparent 50%,#bbb 50%),linear-gradient(135deg,#bbb 50%,transparent 50%);background-position:calc(100% - 15px) 55%,calc(100% - 10px) 55%;background-size:5px 5px;background-repeat:no-repeat;padding-right:24px}
+.smr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;background:#1a1a1a;border:1px solid #3a3a3a;border-radius:10px;padding:10px 12px}
+.smr .need{font-size:14px;color:#bbb}.smr .need b{display:block;font-size:24px;color:#fff;font-variant-numeric:tabular-nums}
+.verdict{font-size:18px;font-weight:800;padding:8px 14px;border-radius:8px;color:#000}
 .sec{color:#ff9500;font-size:12px;text-transform:uppercase;letter-spacing:.6px;margin:10px 0 2px;font-weight:600}
 .muted{color:#888;font-size:12px;margin-top:4px}
 .hint{color:#888;text-align:center;font-size:13px;padding:14px 20px}
@@ -64,6 +76,17 @@ header h1{flex:1;font-size:21px;font-weight:700;font-style:italic;margin:0;lette
 <header><div class="logo">%</div><h1>5 Card Omaha Hi</h1><button class="hbtn" id="rall">Random</button></header>
 <div id="players"></div>
 <div class="hint" id="hint">Tap a card to choose cards. Fill Player 1 for its rank &amp; equity; fill Player 2 too for head-to-head odds.</div>
+<section class="pl sm" id="sm"><div class="pt" id="smt"><h2>Set-mining break-even</h2><button class="chev" aria-label="toggle set-mining panel"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 9l7 7 7-7"/></svg></button></div>
+ <div class="smb"><div class="fg">
+  <label>Pair<select id="smP"></select></label>
+  <label>Stack behind / call (Y)<input id="smY" type="number" inputmode="decimal" min="0" step="0.5" value="27"></label>
+  <label class="w2">Table situation<select id="smC"></select></label>
+  <label>Payoff model<select id="smE"><option value="EV-3">EV-3 (main)</option><option value="EV-2">EV-2 (all pay)</option></select></label>
+  <label>Hero hand<select id="smH"><option value="a">Pair + 3 random</option><option value="b">Typical playable (≥12 pts)</option></select></label>
+ </div>
+ <div class="smr"><div class="need">Needed S/C<b id="smN">–</b></div><span class="verdict" id="smV">–</span></div>
+ <div class="muted" id="smX"></div>
+ <div class="muted">Y = effective stack behind after you call ÷ cost of the call (100bb vs a 3.5bb pot-open ≈ 27; vs a 3-bet ≈ 11). Pure set-mining: you flop a set 12.5% (1 in 8) and fold misses; side-card value ignored. Source: plo5-setmine simulation report (break-even tables).</div></div></section>
 <div class="scrim" id="scrim"></div>
 <div class="sheet" id="sheet"><div class="grab"></div>
  <div class="sh"><b id="shT">Player 1</b><button class="done" id="done">Done</button></div>
@@ -71,7 +94,72 @@ header h1{flex:1;font-size:21px;font-weight:700;font-style:italic;margin:0;lette
  <div class="pick"><div class="suits" id="suits"></div><div class="grid" id="grid"></div></div>
  <div class="acts"><button class="btn" id="sclr">Clear hand</button><button class="btn orange" id="rnd">Random hand</button></div>
 </div>
-<script id="core">// ==CORE== shared by page, worker and node
+<script id="core">var A1=(function(){var module={exports:{}};
+// PLO5 preflop points — HYBRID: Approach 1 (patched additive) for opening/entering + raised-pot adjustment (3 rules)
+// alt = raised-pot points: use when facing a raise/3-bet from a tight range (fitted to HU equity vs top-25% openers and vs AA+3 random).
+// Built 2026-10-21 by /workspace/plo5-approaches/build.py. Weights fitted on simulated equities (see report.md).
+// score(hand) -> {points, percentile, tier, breakdown}. hand: "AsAhKsQhJd" | "As Ah Ks Qh Jd" | array of card strings.
+// percentile = share of all 2,598,960 PLO5 hands scoring fewer points (ties count half), exact enumeration.
+// shared helpers (inlined into each scorer)
+const R='23456789TJQKA',S='shdc';
+function parse(h){if(Array.isArray(h))h=h.join('');h=h.replace(/[\s,]/g,'');if(h.length!==10)throw new Error('need 5 cards');
+ const r=[],s=[];for(let i=0;i<10;i+=2){const a=R.indexOf(h[i].toUpperCase()),b=S.indexOf(h[i+1].toLowerCase());if(a<0||b<0)throw new Error('bad card '+h.substr(i,2));r.push(a);s.push(b);}
+ if(new Set(r.map((x,i)=>x*4+s[i])).size!==5)throw new Error('duplicate card');return [r,s];}
+function info(r,s){const n=r.length,cnt=Array(13).fill(0);r.forEach(x=>cnt[x]++);
+ const prs=[];for(let x=12;x>=0;x--)if(cnt[x]>=2)prs.push(x);
+ const groups=[];for(let su=0;su<4;su++){const m=[];for(let i=0;i<n;i++)if(s[i]===su)m.push(i);if(m.length>=2){let top=-1;m.forEach(i=>{if(r[i]>top)top=r[i];});groups.push({su,top,n:m.length,m});}}
+ groups.sort((a,b)=>b.top-a.top||b.n-a.n);
+ // best 5-rank window (ace plays 1 and 14); ties -> higher window
+ const has=new Set(r.map(x=>x+2));if(cnt[12])has.add(1);let best=0,bw=0;
+ for(let lo=10;lo>=1;lo--){let k=0;for(let v=lo;v<lo+5;v++)if(has.has(v))k++;if(k>best){best=k;bw=lo;}}
+ const inWin=i=>{const v=r[i]+2;return (v>=bw&&v<bw+5)||(r[i]===12&&bw===1);};
+ return {cnt,prs,groups,best,bw,inWin};}
+function plevel(p){return p===12?'A':p===11?'K':p===10?'Q':p===9?'J':p===8?'T':p>=5?'97':'62';}
+
+// Approach 1: patched additive
+const F1=['pA','pK','pQ','pJ','pT','p97','p62','p2hi','p2mid','p2lo','trips','tripsHi','quads',
+ 's1A','s1K','s1Q','s1T','s1L','s2A','s2K','s2Q','s2T','s2L','s3','s4','pairSuit',
+ 'run5','run4','run3','runHi','runLo','hA','hK','hQ','hJ','hT','lowDang','hiDang','AAds','AAdang','KKds','tripsFH','lowTwoPair','tripsConn'];
+const L1={pA:'Top pair AA',pK:'Top pair KK',pQ:'Top pair QQ',pJ:'Top pair JJ',pT:'Top pair TT',p97:'Top pair 99-77',p62:'Top pair 66-22',
+ p2hi:'Second pair TT+',p2mid:'Second pair 99-66',p2lo:'Second pair 55-22',trips:'Trips (dead 3rd card)',tripsHi:'Trips are TTT+',quads:'Quads',
+ s1A:'Best suit A-high',s1K:'Best suit K-high',s1Q:'Best suit Q/J-high',s1T:'Best suit T-8-high',s1L:'Best suit 7-high or lower',
+ s2A:'Second suit A-high',s2K:'Second suit K-high',s2Q:'Second suit Q/J-high',s2T:'Second suit T-8-high',s2L:'Second suit 7-high or lower',
+ s3:'3 cards in one suit',s4:'4+ cards in one suit',pairSuit:'Suit made only by paired cards',
+ run5:'5 ranks in a 5-rank window',run4:'4 ranks in a 5-rank window',run3:'3 ranks in a 5-rank window',runHi:'Run window tops at Q+',runLo:'Run window tops at 7 or lower',
+ hA:'Has an Ace',hK:'Has a King',hQ:'Has a Queen',hJ:'Has a Jack',hT:'Has a Ten',lowDang:'Low dangler (2-6, unpaired, unsuited, outside run)',hiDang:'Dangler 7+',
+ AAds:'AA and double-suited',tripsFH:'Trips + another pair (full-house shape)',tripsConn:'Trips rank sits inside a 3+ card run',lowTwoPair:'Two pair, both 99 or lower',AAdang:'AA + each dangler',KKds:'KK and double-suited'};
+function feat1(r,s){const I=info(r,s),f={};F1.forEach(k=>f[k]=0);const {cnt,prs,groups}=I;
+ if(prs.length){f['p'+plevel(prs[0])]=1;if(prs.length>1){const q=prs[1];f[q>=8?'p2hi':q>=4?'p2mid':'p2lo']=1;}}
+ for(let x=0;x<13;x++){if(cnt[x]===3){f.trips++;if(x>=8)f.tripsHi++;}if(cnt[x]===4)f.quads++;}
+ const lv=t=>t===12?'A':t===11?'K':t>=9?'Q':t>=6?'T':'L';
+ if(groups[0])f['s1'+lv(groups[0].top)]=1;if(groups[1])f['s2'+lv(groups[1].top)]=1;
+ groups.forEach(g=>{if(g.n===3)f.s3++;if(g.n>=4)f.s4++;if(g.m.every(i=>cnt[r[i]]>=2))f.pairSuit++;});
+ if(I.best>=3){f['run'+I.best]=1;const top=I.bw+4;if(top>=12)f.runHi=1;if(top<=7)f.runLo=1;}
+ [['hA',12],['hK',11],['hQ',10],['hJ',9],['hT',8]].forEach(([k,x])=>{if(cnt[x])f[k]=1;});
+ const suited=new Set();groups.forEach(g=>g.m.forEach(i=>suited.add(i)));let dang=0;
+ for(let i=0;i<5;i++){if(cnt[r[i]]>=2||suited.has(i)||(I.best>=3&&I.inWin(i)))continue;dang++;if(r[i]<=4)f.lowDang++;else f.hiDang++;}
+ if(f.trips&&prs.length>1)f.tripsFH=1;if(f.trips&&I.best>=3){for(let x=0;x<13;x++)if(cnt[x]===3){const i=r.indexOf(x);if(I.inWin(i))f.tripsConn=1;}}if(prs.length>1&&prs[0]<=7&&!f.trips)f.lowTwoPair=1;
+ const ds=groups.length>=2?1:0;if(prs[0]===12){f.AAds=ds;f.AAdang=dang;}if(prs[0]===11)f.KKds=ds;
+ return f;}
+
+const W={"pA": 12, "pK": 9, "pQ": 7, "pJ": 5, "pT": 4, "p97": 3, "p62": -1, "p2hi": 6, "p2mid": 5, "p2lo": 2, "trips": -18, "tripsHi": 3, "quads": -36, "s1A": 5, "s1K": 4, "s1Q": 3, "s1T": 1, "s1L": 0, "s2A": 10, "s2K": 6, "s2Q": 5, "s2T": 4, "s2L": 3, "s3": -2, "s4": -4, "pairSuit": 0, "run5": 7, "run4": 4, "run3": 2, "runHi": 0, "runLo": -4, "hA": 3, "hK": 2, "hQ": 2, "hJ": 2, "hT": 3, "lowDang": 0, "hiDang": 1, "AAds": 2, "AAdang": -1, "KKds": 1, "tripsFH": 6, "lowTwoPair": -1, "tripsConn": 2};
+const WC={};
+const PCT={"-37": 0.002, "-36": 0.005, "-35": 0.005, "-34": 0.005, "-33": 0.006, "-32": 0.009, "-31": 0.011, "-30": 0.012, "-29": 0.012, "-28": 0.014, "-27": 0.015, "-26": 0.016, "-25": 0.017, "-24": 0.018, "-23": 0.019, "-22": 0.019, "-21": 0.03, "-20": 0.05, "-19": 0.079, "-18": 0.121, "-17": 0.155, "-16": 0.236, "-15": 0.363, "-14": 0.467, "-13": 0.543, "-12": 0.62, "-11": 0.746, "-10": 0.899, "-9": 0.997, "-8": 1.057, "-7": 1.146, "-6": 1.254, "-5": 1.36, "-4": 1.518, "-3": 1.767, "-2": 2.181, "-1": 2.816, "0": 3.781, "1": 5.303, "2": 7.258, "3": 9.742, "4": 13.115, "5": 17.474, "6": 22.582, "7": 27.785, "8": 33.583, "9": 39.82, "10": 46.082, "11": 52.518, "12": 58.692, "13": 64.615, "14": 69.918, "15": 74.498, "16": 78.326, "17": 81.931, "18": 85.398, "19": 88.177, "20": 90.563, "21": 92.316, "22": 93.59, "23": 94.674, "24": 95.58, "25": 96.422, "26": 97.024, "27": 97.459, "28": 97.813, "29": 98.104, "30": 98.398, "31": 98.638, "32": 98.849, "33": 99.065, "34": 99.301, "35": 99.497, "36": 99.59, "37": 99.684, "38": 99.781, "39": 99.866, "40": 99.931, "41": 99.959, "42": 99.97, "43": 99.978, "44": 99.988, "45": 99.996};
+const CUT={"Premium": 20, "Open any position": 16, "Late position": 12, "Limp/call": 10}; // minimum points for each tier (Premium>=90th pct, Open>=75, Late>=55, Limp>=40)
+function tier(p){return p>=90?'Premium':p>=75?'Open any position':p>=55?'Late position':p>=40?'Limp/call':'Fold';}
+function pts(hand){const [r,s]=parse(hand);const f=feat1(r,s);let points=0;const breakdown=[];
+ for(const k of F1){const v=(f[k]||0)*(W[k]||0);if(v){points+=v;breakdown.push([L1[k]+(f[k]>1?' x'+f[k]:''),v]);}}
+ return {points,breakdown};}
+const ADJ={"AA": 40, "DS": 7, "SP": -7};
+function rp(hand){const [r,s]=parse(hand);const f=feat1(r,s);const a={AA:f.pA,DS:f.s2A+f.s2K+f.s2Q+f.s2T+f.s2L,SP:f.pT+f.p97+f.p62};
+ const LB={AA:'Raised pot: AA',DS:'Raised pot: double-suited',SP:'Raised pot: best pair TT or lower'};let v=0;const bd=[];
+ for(const k in ADJ){const x=a[k]*ADJ[k];if(x){v+=x;bd.push([LB[k],x]);}}return {adj:v,bd};}
+function score(hand){const {points,breakdown}=pts(hand);const R2=rp(hand);const percentile=PCT[points]!==undefined?PCT[points]:(points<MINP?0:100);return {points,percentile,tier:tier(percentile),breakdown,alt:points+R2.adj,altBreakdown:R2.bd};}
+const MINP=-37,MAXP=45;
+module.exports={score,rp,ADJ,pts,W,WC,PCT,CUT,MINP,MAXP,tier,parse};
+
+;return module.exports;})();
+// ==CORE== shared by page, worker and node
 function eval5(a,b,c,d,e){
   var r0=a>>2,r1=b>>2,r2=c>>2,r3=d>>2,r4=e>>2;
   var fl=((a&3)===(b&3))&&((a&3)===(c&3))&&((a&3)===(d&3))&&((a&3)===(e&3));
@@ -168,7 +256,7 @@ function heuristicOld(h){
 }
 // New PLO5 point system (coach refit vs 4-way equity, 1 pt ~ 0.67pp). Features = old breakdown items (see plo5-weights/feat.js).
 var W={pAA:8,pKK:5.9,pQQ:5.55,pJJ:3.95,pTT:2.77,p97:0,p62:-0.46,pair2T:4.39,trips:-12,run5:3.23,run4c:0.78,run4g:0.58,run3c:-0.31,run3g:-0.31,topT:3.05,top7:-0.44,suitA:6.85,suitK:6.39,suitO:4.01,suit3:-1.56,dang:0,low:-2.05};
-function heuristic(h){
+function heuristicLinear(h){
   var o=heuristicOld(h),br=[],score=0;
   o.breakdown.forEach(function(b){var l=b[0],v=b[1],k,n=1;
     if(l.indexOf('Pair ')===0){var p=RANKS.indexOf(l[5]);k=p===12?'pAA':p===11?'pKK':p===10?'pQQ':p===9?'pJJ':p===8?'pTT':p>=5?'p97':'p62';}
@@ -184,7 +272,12 @@ function heuristic(h){
   var tier=score>=12.3?'Premium':score>=8.6?'Open any position':score>=5.5?'Late position':score>=3.4?'Limp/call in position':'Fold';
   return {score:score,breakdown:br,tier:tier,old:o};
 }
-if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,heuristicOld:heuristicOld,W:W,mcH2H:mcH2H};
+// MAIN SCORE: coach's "Approach 1 patched additive" + raised-pot alt (score_a1.js = plo5-approaches/score_6.js verbatim)
+var A1=(typeof A1!=='undefined'&&A1)?A1:require('./score_a1.js');
+function handStr(h){return h.map(function(c){return RANKS[c>>2]+SUITS[c&3];}).join('');}
+function heuristic(h){var r=A1.score(handStr(h));
+  return {score:r.points,percentile:r.percentile,tier:r.tier,breakdown:r.breakdown,alt:r.alt,altBreakdown:r.altBreakdown,linear:heuristicLinear(h).score};}
+if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,heuristicLinear:heuristicLinear,heuristicOld:heuristicOld,handStr:handStr,W:W,mcH2H:mcH2H};
 // ==ENDCORE==
 </script>
 <script>
@@ -203,8 +296,10 @@ function face(c,extra){var col=(c&3)===1||(c&3)===2?'red':'blk',r=rk(c);
  return '<div class="cd face '+col+(extra||'')+'"><div class="cr">'+r+'<i>'+SYM[c&3]+'</i></div><div class="bs">'+SYM[c&3]+'</div><div class="big'+(r.length>1?' t':'')+'">'+r+'</div></div>';}
 function back(extra){return '<div class="cd back'+(extra||'')+'"></div>';}
 function usedBy(c){return hands[0].indexOf(c)>=0||hands[1].indexOf(c)>=0;}
+function fpc(x){return x>=99.95&&x<100?x.toFixed(3).replace(/0+$/,''):x.toFixed(1);}
+function prow(x){return '<div class="row"><span>'+x[0]+'</span><span class="'+(x[1]>0?'pos':x[1]<0?'neg':'muted')+'">'+(x[1]>0?'+':x[1]<0?'−':'')+Math.abs(x[1])+'</span></div>';}
 function sorted(h){return h.slice().sort(function(a,b){return b-a;});}
-var TC={'Premium':'#4cd964','Open any position':'#5ac8fa','Late position':'#ffd60a','Limp/call in position':'#ff9500','Fold':'#ff5a4f'};
+var TC={'Premium':'#4cd964','Open any position':'#5ac8fa','Late position':'#ffd60a','Limp/call':'#ff9500','Fold':'#ff5a4f'};
 var CHEV='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 9l7 7 7-7"/></svg>';
 function pct(eq){var n=DIST.length-1;if(eq<=DIST[0])return 0;if(eq>=DIST[n])return 100;for(var i=1;i<=n;i++)if(DIST[i]>=eq){var f=(eq-DIST[i-1])/((DIST[i]-DIST[i-1])||1);return (i-1+f)/n*100;}}
 function f(x){return x==null||isNaN(x)?'–':(x*100).toFixed(2);}
@@ -229,12 +324,14 @@ function paint(){
   var running=(hh&&!H2.fin)||!E.fin;
   b.innerHTML='<div class="st"><span></span><span class="h">Win(%)</span><span class="h">Tie(%)</span><span class="h">Equity(%)</span><button class="chev" data-chev="'+p+'" aria-label="details">'+CHEV+'</button>'+
    '<span class="lb">'+lab+'</span><span class="v">'+f(w)+'</span><span class="v">'+f(t)+'</span><span class="v">'+f(q)+'</span></div>'+
-   '<div class="sum"><span class="tag" style="background:'+TC[H.tier]+'">'+H.tier+'</span><span>Score '+H.score.toFixed(2)+' <span style="color:#666">(old '+H.old.score+')</span>'+(pc!=null?' · Top '+Math.max(0.1,100-pc).toFixed(1)+'%':'')+(hh?'':' · vs 1 random')+(running?' · …':'')+'</span></div>'+
-   '<div class="det"><div class="sec">Points '+H.score.toFixed(2)+' <span style="color:#777;text-transform:none;letter-spacing:0;font-weight:400">· old: '+H.old.score+' ('+H.old.tier+')</span></div>'+(H.breakdown.length?H.breakdown.map(function(x){return '<div class="row"><span>'+x[0]+'</span><span class="'+(x[1]>0?'pos':x[1]<0?'neg':'muted')+'">'+(x[1]>0?'+':x[1]<0?'−':'')+Math.abs(x[1]).toFixed(2)+'</span></div>';}).join(''):'<div class="row"><span>No scoring features</span><span>0.00</span></div>')+
-   '<div class="row" style="border-top:1px solid #3a3a3a;margin-top:4px;font-weight:600"><span>Total</span><span>'+H.score.toFixed(2)+'</span></div>'+
-   '<div class="muted">Premium ≥12.3 (top 10%) · Open ≥8.6 (top 25%) · Late ≥5.5 (top 45%) · Limp/call ≥3.4 (top 60%) · Fold &lt;3.4. 1 pt ≈ 0.67pp 4-way equity.</div>'+
+   '<div class="sum"><span class="tag" style="background:'+TC[H.tier]+'">'+H.tier+'</span><span><b style="color:#eee">'+H.score+' pts</b> · '+fpc(H.percentile)+' pct · vs 3-bet <b style="color:#eee">'+H.alt+'</b>'+(hh?'':' · vs 1 random')+(running?' · …':'')+'</span></div>'+
+   '<div class="det"><div class="sec">Points '+H.score+' · percentile '+fpc(H.percentile)+' <span style="color:#777;text-transform:none;letter-spacing:0;font-weight:400">· old (linear): '+H.linear+'</span></div>'+(H.breakdown.length?H.breakdown.map(prow).join(''):'<div class="row"><span>No scoring features</span><span>0</span></div>')+
+   '<div class="row tot"><span>Total</span><span>'+H.score+'</span></div>'+
+   '<div class="muted">Premium ≥20 pts (top 10%) · Open ≥16 (top 25%) · Late ≥12 (top 45%) · Limp/call ≥10 (top 60%) · Fold ≤9. Percentile = share of all 2,598,960 PLO5 hands scoring fewer points.</div>'+
+   '<div class="sec">vs 3-bet (raised-pot ranking) '+H.alt+'</div><div class="row"><span>Base points</span><span>'+H.score+'</span></div>'+H.altBreakdown.map(prow).join('')+
+   '<div class="row tot"><span>vs 3-bet total</span><span>'+H.alt+'</span></div><div class="muted">Ranking only, no tier: compare hands when facing a raise/3-bet from a tight range.</div>'+
    '<div class="sec">Equity vs random hands</div><div class="row"><span>vs 3 random (4-way)</span><span>'+f(E.e4)+'%</span></div><div class="row"><span>vs 1 random (HU)</span><span>'+f(E.e1)+'%</span></div>'+
-   '<div class="row"><span>Percentile (4-way)</span><span>'+(pc!=null?pc.toFixed(1)+'th':'–')+'</span></div>'+
+   '<div class="row"><span>Equity percentile (4-way)</span><span>'+(pc!=null?pc.toFixed(1)+'th':'–')+'</span></div>'+
    (hh?'<div class="sec">Head-to-head vs Player '+(2-p)+'</div><div class="row"><span>Win / Tie / Lose</span><span>'+f(w)+' / '+f(t)+' / '+f(p?H2.w1:H2.w2)+'</span></div>':'')+
    '<div class="muted">'+(E.done||0).toLocaleString()+' trials each'+(hh?' · '+(H2.done||0).toLocaleString()+' head-to-head boards':'')+'. Percentile vs 2,000 random hands; avg 4-way equity 25%.</div></div>';}
  $('hint').style.display=full[0]?'none':'';
@@ -248,7 +345,7 @@ function renderSheet(){
 }
 function openSheet(p,i){act=p;tgt=Math.min(i,hands[p].length);document.body.classList.add('open-sheet');renderSheet();build();}
 function closeSheet(){document.body.classList.remove('open-sheet');build();}
-function changed(p){stop(p);stop(2);
+function changed(p){stop(p);stop(2);if(p===0)smFromP1();
  if(hands[p].length===5)run(p,{h:sorted(hands[p]),n:30000});
  if(hands[0].length===5&&hands[1].length===5)run(2,{h:sorted(hands[0]),h2:sorted(hands[1]),n:30000});
  if(sheetOpen())renderSheet();build();}
@@ -267,5 +364,20 @@ $('sclr').onclick=function(){hands[act].length=0;tgt=0;changed(act);};
 function randFill(p){var d=[];for(var i=0;i<52;i++)if(hands[1-p].indexOf(i)<0)d.push(i);hands[p].length=0;for(i=0;i<5;i++)hands[p].push(d.splice(Math.floor(Math.random()*d.length),1)[0]);}
 $('rnd').onclick=function(){randFill(act);changed(act);closeSheet();};
 $('rall').onclick=function(){randFill(0);hands[1].length=0;randFill(1);changed(0);changed(1);};
+// ---- set-mining break-even panel (setmine.json generated from plo5-setmine/report.md) ----
+var SM={"source":"plo5-setmine/report.md","cols":["R1","R2","R3","R5","T1","T3"],"tables":{"EV-2a":{"22":[[58.3,0.3],[33.3,0.2],[26.7,0.2],[23.3,0.2],[80.1,0.6],[30.7,0.2]],"33":[[51.1,0.3],[29.5,0.1],[22.8,0.1],[19.4,0.1],[72.7,0.5],[28.6,0.2]],"44":[[45.4,0.2],[25.9,0.1],[20,0.1],[16.1,0.1],[68.8,0.5],[26.1,0.2]],"55":[[41,0.2],[23.1,0.1],[17.6,0.1],[13.6,0.1],[63.9,0.4],[24.4,0.1]],"66":[[37.5,0.1],[21,0.1],[15.5,0.1],[11.3,0],[59.5,0.4],[22.8,0.1]],"77":[[35.4,0.1],[19,0.1],[13.8,0],[9.6,0],[56.1,0.3],[20.9,0.1]],"88":[[32.8,0.1],[17.6,0.1],[12.4,0],[8.4,0],[52.5,0.3],[19.1,0.1]],"99":[[31.3,0.1],[16.5,0],[11.6,0],[7.5,0],[48.8,0.3],[17.3,0.1]],"TT":[[29.6,0.1],[15.4,0],[10.7,0],[6.8,0],[44.6,0.2],[15.7,0.1]],"JJ":[[28.7,0.1],[14.6,0],[9.8,0],[6,0],[40.3,0.2],[13.3,0]],"QQ":[[27.7,0.1],[13.6,0],[9,0],[5.2,0],[35.5,0.1],[11.1,0]],"KK":[[26.5,0.1],[12.8,0],[8.1,0],[4.5,0],[29.9,0.1],[8.9,0]],"AA":[[25.3,0.1],[12,0],[7.6,0],[4,0],[22.9,0.1],[6.9,0]]},"EV-3a":{"22":[[58.3,0.3],[37.9,0.2],[30.8,0.2],[22.5,0.1],[80.1,0.6],[41.9,0.3]],"33":[[51.1,0.3],[33.7,0.2],[26.9,0.1],[19.7,0.1],[72.7,0.5],[38.4,0.2]],"44":[[45.4,0.2],[29.9,0.1],[24.4,0.1],[17.7,0.1],[68.8,0.5],[35.1,0.2]],"55":[[41,0.2],[27.2,0.1],[22.2,0.1],[16.2,0.1],[63.9,0.4],[32.8,0.2]],"66":[[37.5,0.1],[25.1,0.1],[20.3,0.1],[14.6,0.1],[59.5,0.4],[30.2,0.1]],"77":[[35.4,0.1],[23.1,0.1],[18.6,0.1],[13.2,0],[56.1,0.3],[28.7,0.1]],"88":[[32.8,0.1],[21.6,0.1],[17.3,0.1],[12.2,0],[52.5,0.3],[27,0.1]],"99":[[31.3,0.1],[20.5,0.1],[16.3,0],[11.4,0],[48.8,0.3],[25.2,0.1]],"TT":[[29.6,0.1],[19.2,0.1],[15.3,0],[10.7,0],[44.6,0.2],[22.8,0.1]],"JJ":[[28.7,0.1],[18.3,0],[14.3,0],[9.6,0],[40.3,0.2],[20,0.1]],"QQ":[[27.7,0.1],[17.2,0],[13.2,0],[8.6,0],[35.5,0.1],[17.2,0.1]],"KK":[[26.5,0.1],[16,0],[12,0],[7.6,0],[29.9,0.1],[14,0]],"AA":[[25.3,0.1],[15.1,0],[11.3,0],[7,0],[22.9,0.1],[11,0]]},"EV-2b":{"22":[[51.7,0.3],[28.5,0.1],[22.1,0.1],[17.8,0.1],[62.2,0.4],[23.3,0.1]],"33":[[46.4,0.2],[26.1,0.1],[19.6,0.1],[15.2,0.1],[59.6,0.4],[22,0.1]],"44":[[42.1,0.2],[23.6,0.1],[17.5,0.1],[13.1,0.1],[56.3,0.3],[21.2,0.1]],"55":[[38.3,0.2],[21.2,0.1],[15.6,0.1],[11.2,0],[53.4,0.3],[20,0.1]],"66":[[34.4,0.1],[18.6,0.1],[13.3,0],[9.2,0],[50.5,0.3],[18.4,0.1]],"77":[[31.3,0.1],[16.4,0],[11.7,0],[7.8,0],[46.4,0.2],[16.9,0.1]],"88":[[29.2,0.1],[15.2,0],[10.6,0],[6.8,0],[43,0.2],[15,0.1]],"99":[[27.5,0.1],[14.1,0],[9.7,0],[6,0],[39.2,0.2],[13.5,0]],"TT":[[26.8,0.1],[13.8,0],[9.4,0],[5.9,0],[37.9,0.2],[13,0]],"JJ":[[26.8,0.1],[13.5,0],[9.1,0],[5.4,0],[35.7,0.1],[11.8,0]],"QQ":[[26.4,0.1],[13,0],[8.5,0],[4.9,0],[33,0.1],[10.4,0]],"KK":[[26,0.1],[12.6,0],[8.1,0],[4.4,0],[29.5,0.1],[8.8,0]],"AA":[[25.3,0.1],[12,0],[7.5,0],[4,0],[23,0.1],[6.9,0]]},"EV-3b":{"22":[[51.7,0.3],[32.9,0.1],[26.7,0.1],[19.4,0.1],[62.2,0.4],[32.7,0.2]],"33":[[46.4,0.2],[30.4,0.1],[24.4,0.1],[17.6,0.1],[59.6,0.4],[30.8,0.2]],"44":[[42.1,0.2],[28,0.1],[22.5,0.1],[16.5,0.1],[56.3,0.3],[29.6,0.1]],"55":[[38.3,0.2],[25.8,0.1],[21,0.1],[15.3,0.1],[53.4,0.3],[28.3,0.1]],"66":[[34.4,0.1],[22.8,0.1],[18.5,0.1],[13.2,0],[50.5,0.3],[25.7,0.1]],"77":[[31.3,0.1],[20.4,0.1],[16.4,0],[11.4,0],[46.4,0.2],[23.9,0.1]],"88":[[29.2,0.1],[18.9,0.1],[15.1,0],[10.5,0],[43,0.2],[21.7,0.1]],"99":[[27.5,0.1],[17.7,0],[14,0],[9.6,0],[39.2,0.2],[20.1,0.1]],"TT":[[26.8,0.1],[17.4,0],[13.7,0],[9.4,0],[37.9,0.2],[19.2,0.1]],"JJ":[[26.8,0.1],[17,0],[13.2,0],[8.9,0],[35.7,0.1],[17.8,0.1]],"QQ":[[26.4,0.1],[16.4,0],[12.5,0],[8.1,0],[33,0.1],[16,0]],"KK":[[26,0.1],[15.8,0],[11.9,0],[7.5,0],[29.5,0.1],[13.7,0]],"AA":[[25.3,0.1],[15.1,0],[11.2,0],[6.9,0],[23,0.1],[11,0]]}}},SMP=['AA','KK','QQ','JJ','TT','99','88','77','66','55','44','33','22'],
+ SMC=['HU vs random','3-way','4-way','6-way','HU vs opener','4-way vs 3 openers'],smPairFromP1=null;
+$('smP').innerHTML=SMP.map(function(p){return '<option>'+p+'</option>';}).join('');
+$('smC').innerHTML=SMC.map(function(c,i){return '<option value="'+i+'">'+c+' ('+SM.cols[i]+')</option>';}).join('');
+$('smC').value='2';
+function smUpdate(){var t=SM.tables[$('smE').value+$('smH').value],cell=t[$('smP').value][+$('smC').value],y=parseFloat($('smY').value),v=$('smV');
+ $('smN').textContent=cell[0].toFixed(1)+'×';
+ if(isNaN(y)){v.textContent='Enter Y';v.style.background='#555';}else{var ok=y>=cell[0];v.textContent=ok?'Profitable':'Avoid';v.style.background=ok?'#4cd964':'#ff5a4f';}
+ $('smX').textContent='±'+cell[1].toFixed(1)+' SE'+(smPairFromP1===$('smP').value?' · pair taken from Player 1':'')+(isNaN(y)?'':' · your Y = '+y+'×');}
+function smFromP1(){var cnt={},best=-1;hands[0].forEach(function(c){var r=c>>2;cnt[r]=(cnt[r]||0)+1;if(cnt[r]>=2&&r>best)best=r;});
+ if(best>=0){var p=RANKS[best]+RANKS[best];smPairFromP1=p;$('smP').value=p;smUpdate();}}
+['smP','smC','smE','smH'].forEach(function(id){$(id).onchange=smUpdate;});$('smY').oninput=smUpdate;
+$('smt').onclick=function(){$('sm').classList.toggle('open');};
+smUpdate();
 build();
 </script></body></html>

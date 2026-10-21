@@ -95,7 +95,7 @@ function heuristicOld(h){
 }
 // New PLO5 point system (coach refit vs 4-way equity, 1 pt ~ 0.67pp). Features = old breakdown items (see plo5-weights/feat.js).
 var W={pAA:8,pKK:5.9,pQQ:5.55,pJJ:3.95,pTT:2.77,p97:0,p62:-0.46,pair2T:4.39,trips:-12,run5:3.23,run4c:0.78,run4g:0.58,run3c:-0.31,run3g:-0.31,topT:3.05,top7:-0.44,suitA:6.85,suitK:6.39,suitO:4.01,suit3:-1.56,dang:0,low:-2.05};
-function heuristic(h){
+function heuristicLinear(h){
   var o=heuristicOld(h),br=[],score=0;
   o.breakdown.forEach(function(b){var l=b[0],v=b[1],k,n=1;
     if(l.indexOf('Pair ')===0){var p=RANKS.indexOf(l[5]);k=p===12?'pAA':p===11?'pKK':p===10?'pQQ':p===9?'pJJ':p===8?'pTT':p>=5?'p97':'p62';}
@@ -111,5 +111,10 @@ function heuristic(h){
   var tier=score>=12.3?'Premium':score>=8.6?'Open any position':score>=5.5?'Late position':score>=3.4?'Limp/call in position':'Fold';
   return {score:score,breakdown:br,tier:tier,old:o};
 }
-if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,heuristicOld:heuristicOld,W:W,mcH2H:mcH2H};
+// MAIN SCORE: coach's "Approach 1 patched additive" + raised-pot alt (score_a1.js = plo5-approaches/score_6.js verbatim)
+var A1=(typeof A1!=='undefined'&&A1)?A1:require('./score_a1.js');
+function handStr(h){return h.map(function(c){return RANKS[c>>2]+SUITS[c&3];}).join('');}
+function heuristic(h){var r=A1.score(handStr(h));
+  return {score:r.points,percentile:r.percentile,tier:r.tier,breakdown:r.breakdown,alt:r.alt,altBreakdown:r.altBreakdown,linear:heuristicLinear(h).score};}
+if(typeof module!=='undefined')module.exports={eval5:eval5,evalPLO:evalPLO,mcEquity:mcEquity,parseHand:parseHand,heuristic:heuristic,heuristicLinear:heuristicLinear,heuristicOld:heuristicOld,handStr:handStr,W:W,mcH2H:mcH2H};
 // ==ENDCORE==
